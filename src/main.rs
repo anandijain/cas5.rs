@@ -45,6 +45,7 @@ fn head(e: Expr) -> Expr {
     }
 }
 
+// this is the simplest pattern matcher, where blank is a Symbol, not a List and cannot have a head
 fn my_match(expr: Expr, pattern: Expr) -> bool {
     match (expr.clone(), pattern.clone()) {
         (_, Expr::Sym(p)) => {
@@ -139,9 +140,10 @@ fn rebuild_all(
 }
 
 /// in this case our wildcard is no longer just a symbol "blank"
-/// now we have blank is a zero argument function so list(vec!["blank"])
+/// now we have blank is a zero argument function so list(vec!["blank"]), with an optional first argument to blank for head matching
 /// i dont think that we need to do a position lookup for unnamed patterns because they are all implicitly unique
 /// and since we are traversing we shouldn't ever see our current position
+/// this also supports named blanks ie (pattern x (blank))
 fn my_match2(
     pos: Vec<usize>,
     expr: Expr,
