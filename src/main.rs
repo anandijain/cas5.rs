@@ -16,7 +16,7 @@ peg::parser! {
     }
 }
 
-fn expr(s: &str) -> Expr {
+fn parse(s: &str) -> Expr {
     expr_parser::Expr(s).unwrap()
 }
 
@@ -89,10 +89,59 @@ fn is_blank_match(e: Expr, p: Expr) -> bool {
 
 // traverses the expression, and whenever it hits a position in the tree that exists in pos map,
 // replace
-// fn pos_map_replace
+fn pos_map_rebuild(pos: Vec<usize>, pat: Expr, pos_map: &HashMap<Vec<usize>, Expr>) -> Expr {
+    if let Some(replacement) = pos_map.get(&pos) {
+        return replacement.clone();
+    }
+
+    match pat {
+        Expr::Sym(_) => pat,
+        Expr::List(es) => {
+            let mut new_es = vec![];
+            for (i, e) in es.iter().enumerate() {
+                let mut new_pos = pos.clone();
+                new_pos.push(i);
+                let new_e = pos_map_rebuild(new_pos, e.clone(), pos_map);
+                new_es.push(new_e);
+            }
+            Expr::List(new_es)
+        }
+    }
+}
+
+pub fn named_rebuild_all(expr: Expr, map: &HashMap<Expr, Expr>) -> Expr {
+    // First, check if the entire expression exists in the map and replace it if it does
+    if let Some(replacement) = map.get(&expr) {
+        return replacement.clone();
+    }
+
+    // If the expression is not in the map, proceed with the recursion
+    match expr {
+        Expr::Sym(_) => expr,
+        Expr::List(list) => {
+            // Recursively rebuild all sub-expressions in the list
+            let new_list: Vec<Expr> = list
+                .into_iter()
+                .map(|e| named_rebuild_all(e, map))
+                .collect();
+            Expr::List(new_list)
+        }
+    }
+}
+
+fn rebuild_all(
+    pat: Expr,
+    named_map: &HashMap<Expr, Expr>,
+    pos_map: &HashMap<Vec<usize>, Expr>,
+) -> Expr {
+    let new_ex = named_rebuild_all(pat, named_map);
+    pos_map_rebuild(vec![], new_ex, pos_map)
+}
 
 /// in this case our wildcard is no longer just a symbol "blank"
 /// now we have blank is a zero argument function so list(vec!["blank"])
+/// i dont think that we need to do a position lookup for unnamed patterns because they are all implicitly unique
+/// and since we are traversing we shouldn't ever see our current position
 fn my_match2(
     pos: Vec<usize>,
     expr: Expr,
@@ -114,6 +163,7 @@ fn my_match2(
                     false
                 }
             } else if ps[0] == sym("pattern") {
+                // todo: do lookup first
                 let p_name = &ps[1];
                 let b = &ps[2];
                 if is_blank_match(expr.clone(), b.clone()) {
@@ -191,11 +241,12 @@ fn main() {
         (sym("f"), list(vec!["blank", "f"]), false),
         (list(vec!["f", "x"]), list(vec!["blank", "f"]), true),
         (list(vec!["f", "x"]), list(vec!["blank", "g"]), false),
-        (expr("(f (a b))"), expr("(f (blank))"), true),
-        (expr("(f (a b))"), expr("(f (blank a))"), true),
-        (expr("(f x)"), expr("((blank) (blank))"), true),
-        (expr("f"), expr("(pattern x (blank))"), true),
-        (expr("(f)"), expr("(pattern x (blank))"), true),
+        (parse("(f (a b))"), parse("(f (blank))"), true),
+        (parse("(f (a b))"), parse("(f (blank a))"), true),
+        (parse("(f x)"), parse("((blank) (blank))"), true),
+        (parse("f"), parse("(pattern x (blank))"), true),
+        (parse("(f)"), parse("(pattern x (blank))"), true),
+        (parse("(f x)"), parse("((pattern x (blank)) (blank))"), true),
     ];
 
     // list(vec!["f", "a", "b", "c"]), list(vec!["f", sym("blank_sequence")])
@@ -209,9 +260,10 @@ fn main() {
             my_match2(pos, ex.clone(), pat.clone(), &mut pos_map, &mut named_map),
             *expected
         );
+        if *expected {
+            let rebuilt_ex = rebuild_all(pat.clone(), &named_map, &pos_map);
+            assert_eq!(rebuilt_ex, ex.clone());
+        }
         println!("pos:\n{pos_map:?}\nnamed:\n{named_map:?}\n\n");
     }
-
-    // what were doing now, is creating a map from the positions of the blanks in pattern
-    // to the expressions they matched to.
 }
